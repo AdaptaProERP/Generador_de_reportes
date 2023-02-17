@@ -1,0 +1,110 @@
+// Programa   : DPRAQTOREPORTES
+// Fecha/Hora : 06/03/2015 05:24:35
+// Propósito  : Actualiza DPREPORTES desde los paquetes DOWNLOAD\DPREPORTES
+// Creado Por : Juan Navas
+// Llamado por: PLUGIN_DOWN
+// Aplicación : Programación
+// Tabla      :
+
+#INCLUDE "DPXBASE.CH"
+
+PROCE MAIN(cDir,oMemo)
+   LOCAL aFiles,I,U,aTablas:={},cFilePaq,cFileZip,cTabla,cFileGru,cCodGru
+   LOCAL aTablasU:={},cFileDbf,cCodigo,oTable
+   LOCAL cAdd    :=STRTRAN(DTOS(oDp:dFecha)+"_"+LSTR(SECONDS()),".","")
+   LOCAL cFileC 
+   
+   DEFAULT cDir:="DOWNLOAD\DPREPORTES\"
+
+   AADD(aTablas,{"DPREPORTES","REP_CODIGO"})
+   AADD(aTablas,{"DPGRUREP"  ,"GRR_CODIGO"})
+
+   aFiles:=DIRECTORY(cDir+"*.RAQ")
+
+   IF !Empty(aFiles) .AND. oMemo<>NIL
+      oMemo:Append("Actualizando "+LSTR(LEN(aFiles))+" Reportes(s) "+CRLF)
+   ENDIF
+
+   FOR I=1 TO LEN(aFiles)
+
+      SysRefresh(.T.)
+
+      IF(oMemo=NIL,NIL,oMemo:Append("Reporte: "+cFileNoExt(aFiles[I,1])+CRLF))
+
+      cFilePaq:=cDir+aFiles[I,1]
+      cFileZip:=cDir+cFileNoExt(aFiles[I,1])+".ZIP"
+      cCodigo :=cFileNoExt(aFiles[I,1])
+      cFileDbf:=cDir+"DPREPORTES.DBF"
+      cFileGru:=cDir+"DPGRUREP.DBF"
+
+      FERASE(cFileDbf)
+      FERASE(cFileGru)
+
+//    FERASE(cFileZip)
+
+      COPY FILE (cFilePaq) TO (cFileZip)
+      HB_UNZIPFILE( cFileZip , {|| nil }, .t., NIL, cDir , NIL )
+
+      /* 
+      // Actualiza el Grupo del Reporte
+      */
+      CLOSE ALL
+      USE (cFileDbf)
+      cCodGru:=REP_GRUPO
+
+      USE (cFileGru)
+
+      oTable:=OpenTable("SELECT * FROM DPGRUREP WHERE GRR_CODIGO "+GetWhere("=",cCodGru))
+
+      IF oTable:RecCount()=0
+         oTable:AppendBlank()
+         oTable:cWhere:=""
+      ENDIF
+
+      AEVAL(DbStruct(),{|a,n| oTable:Replace(a[1],FIELDGET(n)) })
+
+      oTable:Commit(oTable:cWhere)
+      oTable:End()
+
+      USE
+
+      /* 
+      // Actualiza el Reporte
+      */
+      CLOSE ALL
+    
+      USE (cFileDbf)
+
+
+      oTable:=OpenTable("SELECT * FROM DPREPORTES WHERE REP_CODIGO"+GetWhere("=",cCodigo))
+
+      IF oTable:RecCount()=0
+         oTable:AppendBlank()
+         oTable:cWhere:=""
+      ENDIF
+
+      AEVAL(DbStruct(),{|a,n| oTable:Replace(a[1],FIELDGET(n)) })
+
+      IF oTable:RecCount()>0
+         oTable:SETAUDITAR()
+      ENDIF
+
+      oTable:Commit(oTable:cWhere)
+      oTable:End()
+
+      USE
+    
+      ferase("REPORTS\"+cCodigo+".RXB")
+
+      FERASE(cFileZip)
+      FERASE(cFilePaq)
+      FERASE(cFileDbf)
+      FERASE(cFileGru)
+
+   NEXT I
+
+RETURN .T.
+// EOF
+
+
+RETURN

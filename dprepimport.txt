@@ -1,0 +1,575 @@
+// Programa   : DPREPIMPORT
+// Fecha/Hora : 06/09/2004 16:18:52
+// Prop¢sito  : Importar Reportes
+// Creado Por : Juan Navas
+// Llamado por: DPMENU	 
+// Aplicaci¢n : Todas
+// Tabla      : DPPROGRA
+// Se agrego 90 caracteres para la busqueda de direccion a buscar los archivos (TJ)
+
+#INCLUDE "DPXBASE.CH"
+
+PROCE MAIN(cDir,cCodRep)
+  LOCAL aConceptos:={}
+  LOCAL oGrp
+
+  IF !Empty(cCodRep)
+   
+    IF !FILE("datadbf\DPREPORTES.dbf")
+       RETURN .F.
+    ENDIF
+
+
+    IF ","$cCodRep
+      aConceptos:=_VECTOR(cCodRep,",")
+    ELSE
+      AADD(aConceptos,cCodRep)
+    ENDIF
+
+    DpMsgRun("Importando Reportes",cCodRep,NIL,LEN(aConceptos))
+
+    PUBLICO("oEditRun",oDp:oMsgRun)
+    oEditRun:nCantid   :=LEN(aConceptos)
+    oEditRun:aConceptos:=ACLONE(aConceptos)
+    oEditRun:nRecord   :=0
+    oEditRun:lMsgBar   :=.F.  
+    oEditRun:cFileDbf  :="datadbf\DPREPORTES.dbf"
+
+    RUNIMPORT(oEditRun,"datadbf\",.F.)
+
+    DpMsgClose()
+
+    RETURN .T.
+
+  ENDIF
+
+
+  IF !Empty(cDir) .OR. !Empty(cCodRep)
+     RETURN ConImport(cDir,NIL,cCodRep)
+  ENDIF
+
+  DPEDIT():New("Importar Reportes DpXbase ","DPREPIMP.EDT","oImpRep",.T.)
+ 
+  oImpRep:nOrigen:=1
+  oImpRep:cDir   :=CURDRIVE()+":\"+CURDIR()+PADR("\datadbf\",90)
+  oImpRep:oDir   :=NIL
+
+  @ 2,1 GROUP oGrp TO 4, 21.5 PROMPT "Origen"
+  @ 4,1 GROUP oGrp TO 6, 21.5 PROMPT "Ruta"
+
+  @ 4,  9 RADIO oImpRep:nOrigen PROMPT "&Instalados", "&Exportados";
+          ON CHANGE oImpRep:ONCHANGE(oImpRep)
+
+  @ 1,1 BMPGET oImpRep:oDir VAR oImpRep:cDir;
+                            VALID oImpRep:VALDIR();
+                            NAME "BITMAPS\FOLDER5.BMP";
+                            ACTION (cDir:=cGetDir(oImpRep:cDir),;
+                            IIF(!EMPTY(cDir),oImpRep:PUTVAR("cDir",PADR(cDir,90)),NIL),DPFOCUS(oImpRep:oDir))
+
+  @ 6,07 BUTTON oImpRep:oBtnRun PROMPT "Iniciar " ACTION oImpRep:ConImport(NIL,oImpRep)
+
+  @ 6,10 BUTTON "Cerrar  " ACTION  oImpRep:Close() CANCEL
+
+  oImpRep:Activate(NIL)
+
+Return oImpRep
+
+FUNCTION VALDIR()
+
+  oImpRep:cDir:=ALLTRIM(oImpRep:cDir)
+  oImpRep:cDir:=oImpRep:cDir+IF( RIGHT(oImpRep:cDir,1)="\","","\")
+  oImpRep:oDir:VarPut(oImpRep:cDir,.T.)
+
+
+RETURN .T.
+/*
+// Realiza 
+*/
+FUNCTION ONCHANGE(oImpRep)
+   LOCAL cDir:=""
+   LOCAL oData
+
+   IF !oImpRep:lActivated
+      RETURN .F.
+   ENDIF
+
+   IF oImpRep:nOrigen=1
+
+     cDir   :=CURDRIVE()+":\"+CURDIR()+PADR("\datadbf\",90)
+
+   ELSE
+
+     // Grabar DataSet
+     oData:=DATASET("PRGEXPORT","PC")
+     cDir :=PADR(oData:Get("CPATH","C:"),90)
+     oData:End()
+
+   ENDIF
+
+   IF ValType(oImpRep)="O" 
+      oImpRep:oDir:VarPut(cDir,.T.)
+   ENDIF
+
+RETURN .T.
+
+/*
+// Presenta la selecci¢n de Conceptos
+*/
+FUNCTION CONIMPORT(cDir,oImpRep,cCodRep)
+  LOCAL cFile:=NIL // ALLTRIM(oImpRep:cDir)+"DPREPORTES.dbf"
+  LOCAL nFieldPos:=0
+  LOCAL aData:={} // Todo el Archivo
+  LOCAL aView:={} // Visualizar
+  LOCAL oDlg,oFont,oFontB,oBrw,oCol
+  LOCAL aCoors:=GetCoors( GetDesktopWindow() )
+
+  DEFAULT cDir:=ALLTRIM(oImpRep:cDir)
+
+  cDir:=ALLTRIM(cDir)
+
+  IF !RIGHT(cDir,1)="\"
+     cDir:=cDir+"\"
+  ENDIF
+
+  cFile:=ALLTRIM(cDir)+"DPREPORTES.dbf"
+
+  IF !FILE(cFile) 
+     MensajeErr(cFile,"Archivo no Existe")
+     RETURN .F.
+  ENDIF
+
+  CursorWait()
+
+  IF DPSELECT("DPREPORTES")
+    USE
+  ENDIF
+
+  SELE A
+  USE (cFile) EXCLU VIA "DBFCDX" ALIAS "DPREPORTES" READONLY
+
+  MsgMeter( { | oMeter, oText, oDlg, lEnd | ;
+               CONLEE(cFile,oDlg,oText,oMeter,@lEnd,@aData,@aView,@nFieldPos)  },;
+             "Leyendo Reportes", "Leyendo.."  )
+
+  SELE A
+  USE
+
+  IF ValType(oImpRep)="O"
+    oImpRep:Close()
+    oImpRep:=NIL
+  ENDIF
+
+  DEFINE FONT oFont  NAME "Tahoma"   SIZE 0, -12 
+  DEFINE FONT oFontB NAME "Tahoma"   SIZE 0, -12 BOLD
+
+//  oImp_Con:=DPEDIT():New("Importar REPORTES DpXbase","DPPRGIMPORT.edt","oImp_Con",.T.)
+
+  DpMdi("Importar REPORTES DpXbase","oImp_Con","DPREPIMPORT.edt")
+  oImp_Con:Windows(0,0,aCoors[3]-160,MIN(800,aCoors[4]-10),.T.) // Maximizado
+
+
+  oImp_Con:aData    :=ACLONE(aData)
+  oImp_Con:cFileDbf :=cFile
+
+  oImp_Con:nClrPane1:=oDp:nClrPane1
+  oImp_Con:nClrPane2:=oDp:nClrPane2
+
+  aData:=NIL
+
+  oDlg:=oImp_Con:oDlg
+
+  oBrw:=TXBrowse():New( oDlg )
+
+//  oBrw:nMarqueeStyle       := MARQSTYLE_HIGHLCELL
+  oBrw:SetArray( aView, .F. )
+  oBrw:lHScroll            := .F.
+  oBrw:lFooter             := .F.
+  oBrw:oFont               :=oFont
+  oBrw:nHeaderLines        := 1
+
+  AEVAL(oBrw:aCols,{|oCol|oCol:oHeaderFont:=oFontB})
+
+  oImp_Con:oBrw:=oBrw
+
+  oBrw:aCols[1]:cHeader:="Código"
+  oBrw:aCols[1]:nWidth :=140
+
+  oBrw:aCols[2]:cHeader  :="Descripción"
+  oBrw:aCols[2]:nWidth   :=320
+
+  oCol:=oBrw:aCols[3]
+  oCol:cHeader      := "Alterado"
+  oCol:nWidth       := 70
+  oCol:AddBmpFile("BITMAPS\checkverde.bmp")
+  oCol:AddBmpFile("BITMAPS\Checkrojo.bmp")
+  oCol:bBmpData    := {|oObj,oBrw|oBrw:=oImp_Con:oBrw,IIF(oBrw:aArrayData[oBrw:nArrayAt,3],1,2) }
+  oCol:nDataStyle  := oCol:DefStyle( AL_LEFT, .F.)
+  oCol:bStrData    := { ||""}
+
+  oCol:=oBrw:aCols[4]
+  oCol:cHeader      := "Diferente"
+  oCol:nWidth       := 70
+  oCol:AddBmpFile("BITMAPS\checkverde.bmp")
+  oCol:AddBmpFile("BITMAPS\Checkrojo.bmp")
+  oCol:bBmpData    := {|oObj,oBrw|oBrw:=oImp_Con:oBrw,IIF(oBrw:aArrayData[oBrw:nArrayAt,4],1,2) }
+  oCol:nDataStyle  := oCol:DefStyle( AL_LEFT, .F.)
+  oCol:bStrData    := { ||""}
+
+  oCol:=oBrw:aCols[5]
+  oCol:cHeader      := "Nuevo"
+  oCol:nWidth       := 70
+  oCol:AddBmpFile("BITMAPS\checkverde.bmp")
+  oCol:AddBmpFile("BITMAPS\Checkrojo.bmp")
+  oCol:bBmpData    := {|oObj,oBrw|oBrw:=oImp_Con:oBrw,IIF(oBrw:aArrayData[oBrw:nArrayAt,5],1,2) }
+  oCol:nDataStyle  := oCol:DefStyle( AL_LEFT, .F.)
+  oCol:bStrData    := { ||""}
+
+  oCol:=oBrw:aCols[6]
+  oCol:cHeader      := "Importar"
+  oCol:nWidth       := 70
+  oCol:AddBmpFile("BITMAPS\checkverde.bmp")
+  oCol:AddBmpFile("BITMAPS\Checkrojo.bmp")
+  oCol:bBmpData    := {|oObj,oBrw|oBrw:=oImp_Con:oBrw,IIF(oBrw:aArrayData[oBrw:nArrayAt,6],1,2) }
+  oCol:nDataStyle  := oCol:DefStyle( AL_LEFT, .F.)
+  oCol:bStrData    := { ||""}
+
+  oCol:bLClickHeader:={|nRow,nCol,nKey,oCol|oImp_Con:ChangeAllImp(oImp_Con,nRow,nCol,nKey,oCol,.T.)}
+
+  AEVAL(oBrw:aCols,{|oCol,n|oCol:bLDClickData:={||oImp_Con:ConSelect(oImp_Con)}})
+
+  oBrw:bClrHeader:= {|| { oDp:nLbxClrHeaderText, oDp:nLbxClrHeaderPane}}
+  oBrw:bClrFooter:= {|| { oDp:nLbxClrHeaderText, oDp:nLbxClrHeaderPane}}
+
+  oBrw:bClrStd   :={|oBrw,cCod,nClrText|oBrw:=oImp_Con:oBrw,;
+                               nClrText:=IIF(oBrw:aArrayData[oBrw:nArrayAt,6],13264128,4144959),;
+                               {nClrText, iif( oBrw:nArrayAt%2=0, oImp_Con:nClrPane1, oImp_Con:nClrPane2 ) } }
+  oBrw:SetFont(oFont)
+
+  oBrw:CreateFromCode()
+
+  oImp_Con:oWnd:oClient := oImp_Con:oBrw
+
+  oImp_Con:Activate({||oImp_Con:FICHABAR()})
+
+  STORE NIL TO oBrw,oDlg
+
+RETURN .T.
+
+/*
+// Coloca la Barra de Botones
+*/
+FUNCTION FICHABAR()
+   LOCAL oCursor,oBar,oBtn,oFont,oCol,nDif
+   LOCAL nWidth :=0 // Ancho Calculado segœn Columnas
+   LOCAL nHeight:=0 // Alto
+   LOCAL nLines :=0 // Lineas
+   LOCAL oDlg:=oImp_Con:oDlg
+
+   DEFINE CURSOR oCursor HAND
+   DEFINE BUTTONBAR oBar SIZE 52-15,60-15 OF oDlg 3D CURSOR oCursor
+
+   DEFINE BUTTON oBtn;
+          OF oBar;
+          NOBORDER;
+          FONT oFont;
+          FILENAME "BITMAPS\RUN.BMP";
+          ACTION oImp_Con:IMPORTCON(oImp_Con)
+
+   oBtn:cToolTip:="Iniciar Importaci¢n de Conceptos"
+
+   DEFINE BUTTON oBtn;
+          OF oBar;
+          NOBORDER;
+          FONT oFont;
+          FILENAME "BITMAPS\XFIND.BMP";
+          ACTION EJECUTAR("BRWSETFIND",oImp_Con:oBrw)
+
+   oBtn:cToolTip:="Solicitar B£squeda"
+
+
+   DEFINE BUTTON oBtn;
+          OF oBar;
+          NOBORDER;
+          FONT oFont;
+          FILENAME "BITMAPS\FILTRAR.BMP";
+          ACTION EJECUTAR("BRWSETFILTER",oImp_Con:oBrw)
+
+   oBtn:cToolTip:="Filtrar Registros"
+
+
+
+   DEFINE BUTTON oBtn;
+          OF oBar;
+          NOBORDER;
+          FONT oFont;
+          FILENAME "BITMAPS\xTOP.BMP";
+          ACTION (oImp_Con:oBrw:GoTop(),oImp_Con:oBrw:Setfocus())
+
+   DEFINE BUTTON oBtn;
+          OF oBar;
+          NOBORDER;
+          FONT oFont;
+          FILENAME "BITMAPS\xSIG.BMP";
+          ACTION (oImp_Con:oBrw:PageDown(),oImp_Con:oBrw:Setfocus())
+
+   DEFINE BUTTON oBtn;
+          OF oBar;
+          NOBORDER;
+          FONT oFont;
+          FILENAME "BITMAPS\xANT.BMP";
+          ACTION (oImp_Con:oBrw:PageUp(),oImp_Con:oBrw:Setfocus())
+
+   DEFINE BUTTON oBtn;
+          OF oBar;
+          NOBORDER;
+          FONT oFont;
+          FILENAME "BITMAPS\xFIN.BMP";
+          ACTION (oImp_Con:oBrw:GoBottom(),oImp_Con:oBrw:Setfocus())
+
+   oBtn:cToolTip:="Grabar los Cambios"
+
+   DEFINE BUTTON oBtn;
+          OF oBar;
+          NOBORDER;
+          FONT oFont;
+          FILENAME "BITMAPS\XSALIR.BMP";
+          ACTION oImp_Con:Close()
+
+  oImp_Con:oBrw:SetColor(0,oImp_Con:nClrPane1)
+
+//  @ 0.1,60 SAY oImp_Con:cTrabajad OF oBar BORDER SIZE 345,18
+
+  oBar:SetColor(CLR_BLACK,oDp:nGris)
+  AEVAL(oBar:aControls,{|o,n|o:SetColor(CLR_BLACK,oDp:nGris)})
+
+RETURN .T.
+
+/*
+// Presenta la selecci¢n de Conceptos
+*/
+FUNCTION CONLEE(cFile,oDlg,oText,oMeter,lEnd,aData,aView)
+   LOCAL oTable,lNew,lChange,lAlter,lImport
+   LOCAL aRecord:=ARRAY(FCOUNT())
+   LOCAL uValue1,uValue2
+
+   oDlg:SetColor(CLR_BLACK,oDp:nGris)
+   oDlg:Refresh(.T.)
+   oDlg:aControls[1]:SetColor(CLR_BLACK,oDp:nGris)
+
+   oMeter:SetTotal(RecCount())
+   GO TOP
+
+   WHILE !EOF()
+
+     oTable   :=OpenTable("SELECT * FROM DPREPORTES WHERE REP_CODIGO"+GetWhere("=",REP_CODIGO),.T.)
+     lNew     :=oTable:RecCount()=0
+     lAlter   :=oTable:REP_ALTERA
+     lChange  :=.F.
+
+     oMeter:Set(Recno())
+
+     AEVAL(aRecord,{|a,n,nAt,lIgual|nAt    :=oTable:FieldPos(FieldName(n)) ,;
+                                    uValue1:=ALLTRIM(CTOO(oTable:FieldGet(nAt),"C")),;
+                                    uValue1:=STRSQLOFF(uValue1)         ,;
+                                    uValue2:=ALLTRIM(CTOO(FieldGet(n),"C")),;
+                                    uValue1:=MEMOTRAN(uValue1)          ,;
+                                    uValue2:=MEMOTRAN(uValue2)          ,;
+                                    uValue1:=STRTRAN(uValue1,CRLF   ,""),;
+                                    uValue2:=STRTRAN(uValue2,CRLF   ,""),;
+                                    uValue1:=STRTRAN(uValue1,CHR(10),""),;
+                                    uValue2:=STRTRAN(uValue2,CHR(10),""),;
+                                    lIgual :=IIF(FIELDNAME(n)="REP_ALTERA",.T.,(uValue1==uValue2)),;
+                                    IIF(!lIgual,lChange:=.T.,NIL),;
+                                    aRecord[n]:=FieldGet(n)})
+
+     lImport:=!lAlter               // No debe Importar los Alterados
+     lImport:=IIF(lNew,.T.,lImport) // Los nuevos debe Importarlos
+
+     IF oImpRep:nOrigen=2 // Si vienen desde Diskette debe ser Importados
+        lImport:=.T.
+     ENDIF
+
+     AADD(aView,{REP_CODIGO,REP_DESCRI,lAlter,lChange,lNew,lImport})
+     AADD(aData,aRecord)
+     lAlter :=.F.
+     lChange:=.F.
+     oTable:End()
+
+     SKIP
+
+   ENDDO
+
+RETURN .T.
+
+/*
+// Selecciona o Desmarca a Todos
+*/
+FUNCTION ChangeAllImp(oImp_Con)
+   LOCAL oBrw:=oImp_Con:oBrw
+   LOCAL lSelect:=!oBrw:aArrayData[1,6]
+
+   AEVAL(oBrw:aArrayData,{|a,n|oBrw:aArrayData[n,6]:=lSelect})
+   oBrw:Refresh(.T.)
+
+RETURN .T.
+/*
+// Seleccionar Concepto
+*/
+FUNCTION ConSelect(oFrmSelCon)
+  LOCAL oBrw:=oFrmSelCon:oBrw,oTable
+  LOCAL nArrayAt,nRowSel
+  LOCAL cCodCon,cCodCla,lSelect,cWhere
+  LOCAL nCol:=6
+  LOCAL lSelect
+
+  IF ValType(oBrw)!="O"
+     RETURN .F.
+  ENDIF
+
+  nArrayAt:=oBrw:nArrayAt
+  nRowSel :=oBrw:nRowSel
+  lSelect :=oBrw:aArrayData[nArrayAt,nCol]
+
+  oBrw:aArrayData[oBrw:nArrayAt,nCol]:=!lSelect
+  oBrw:RefreshCurrent()
+
+RETURN .T.
+
+/*
+// Importar Conceptos
+*/
+FUNCTION ImportCon(oFrmSelCon)
+  LOCAL aSelect   :={},cSql,I,oBrw:=oFrmSelCon:oBrw
+  LOCAL aConceptos:={},cFile:=oImp_Con:cFileDbf
+
+  FOR I=1 TO LEN(oBrw:aArrayData)
+    IF oBrw:aArrayData[i,6]
+       AADD(aConceptos,oBrw:aArrayData[I,1])
+    ENDIF
+  NEXT I
+
+  oFrmSelCon:Close()
+
+  IF EMPTY(aConceptos) 
+     MensajeErr("No hay Conceptos Seleccionados")
+     RETURN .F.
+  ENDIF
+
+  oEditRun:=DPEDIT():New("Importar ["+ALLTRIM(STR(LEN(aConceptos),4,0))+"] REPORTES(s) ","forms\IMPDPREP.edt","oEditRun",.T.)
+
+  oEditRun:nCantid   :=LEN(aConceptos)
+  oEditRun:aConceptos:=ACLONE(aConceptos)
+  oEditRun:nRecord   :=0
+  oEditRun:oMeter    :=NIL
+  oEditRun:cFileDbf  :=cFile
+
+  @ 03,02 SAY oEditRun:oSayRecord PROMPT "Registros: "
+
+  @ 02,01 METER oEditRun:oMeter VAR oEditRun:nRecord
+
+  @ 6,07 BUTTON oEditRun:oBtnRun PROMPT "Iniciar " ACTION oEditRun:RUNIMPORT(oEditRun)
+  @ 6,10 BUTTON "Cerrar  " ACTION (oEditRun:Close()) CANCEL
+
+  oEditRun:Activate(NIL)
+
+  aSelect:=NIL
+
+RETURN NIL
+
+/*
+// Ejecuta la Importaci¢n
+*/
+FUNCTION RUNIMPORT(oEditRun,cDir,lMsg)
+   LOCAL nContar:=0,aFields:={},oTable,oScript,oIni
+   LOCAL cFile:=oEditRun:cFileDbf,nUpdate:=0,nAppend:=0
+   LOCAL cFileRep,cFileRpt,aFileRpt,nAt,cDrive,I
+
+   nAt   :=RAT("\",cFile)
+   cDrive:=LEFT(cFile,nAt)
+
+   DEFAULT lMsg:=.T.
+
+   SELE A
+   USE (cFile) EXCLU VIA "DBFCDX" ALIAS "DPREPORTES"
+   aFields:=Array(Fcount())
+   oEditRun:oMeter:SetTotal(LEN(oEditRun:aConceptos))
+
+   WHILE !EOF()
+
+      IF ASCAN(oEditRun:aConceptos,REP_CODIGO)>0
+
+        oEditRun:oSayRecord:SetText(REP_CODIGO+" "+REP_DESCRI)
+        nContar++
+        oEditRun:oMeter:Set(nContar)
+        oTable:=OpenTable("SELECT * FROM DPREPORTES WHERE REP_CODIGO"+GetWhere("=",REP_CODIGO),.T.)
+
+        IF oTable:RecCount()=0
+           nAppend++
+           oTable:Append()
+        ELSE
+           nUpdate++
+        ENDIF
+
+        AEVAL(aFields,{|a,n,nAt,uValue|uValue:=FieldGet(n),;
+                                       nAt   :=oTable:FieldPos(FieldName(n)),;
+                                       IIF(nAt>0,oTable:Replace(FieldName(n),uValue),NIL)})
+        oTable:REPLACE("REP_FECHA",DPFECHA())
+        oTable:REPLACE("REP_HORA",DPHORA())
+        IF !oTable:lAppend
+           oTable:SETAUDITAR()
+        ENDIF
+        oTable:Commit(IIF(oTable:lAppend,"",oTable:cWhere))
+        oTable:End()
+
+        // Archivo INI, para saber los reportes
+        cFileRep:=cDrive+ALLTRIM(oTable:REP_CODIGO)+".REP"
+
+        IF FILE(cFileRep)
+
+          oIni:=Tini():New( cFileRep )
+
+          cFileRpt:=oIni:Get("HEAD","CRYSTAL" ,"")
+          aFileRpt:=_VECTOR(cFileRpt,";")
+
+          FOR I=1 TO LEN(aFileRpt)
+            aFileRpt[I] :=STRTRAN(aFileRpt[I],CHR(29),"'")
+            aFileRpt[I] :=MACROEJE(aFileRpt[I])
+            cFileRpt    :=cDrive+cFileNoPath(aFileRpt[i,1])
+
+            IF FILE(cFileRpt) .AND. cFileRpt<>("REPORT\"+cFileNoPath(aFileRpt[i,1]))
+                __COPYFILE(cFileRpt,"REPORT\"+cFileNoPath(aFileRpt[i,1]))
+            ENDIF
+
+          NEXT I
+     
+        ENDIF
+
+        FERASE("REPORT\"+ALLTRIM(REP_CODIGO)+".REP")              // Reportes        
+        FERASE("REPORT\REP_"+ALLTRIM(REP_CODIGO)+".RXB")              // Compilado       
+
+        MEMOWRIT("REPORT\"+ALLTRIM(REP_CODIGO)+".SRE",REP_FUENTE) // Programa Fuente 
+
+       // EJECUTAR("DPREPIMPORT",ALLTRIM(REP_CODIGO)) // Quitar path de Crystal
+        
+
+      ENDIF
+
+      SKIP
+
+   ENDDO
+
+   IF lMsg
+
+     MsgInfo("Importación de Reportes"+CRLF+;
+             "Nuevos:"+ALLTRIM(STR(nAppend))+CRLF+;
+             "Actualizados:"+ALLTRIM(STR(nUpdate)),"Proceso Finalizado")
+
+   ENDIF
+
+   SELE A
+   USE
+   
+   oEditRun:Close()
+
+RETURN .T.
+// EOF
